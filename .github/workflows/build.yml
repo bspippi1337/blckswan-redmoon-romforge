@@ -1,0 +1,87 @@
+name: BLCKSWAN RED MOON FlashROM
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_url:
+        description: Optional direct firmware URL
+        required: false
+      release_repo_url:
+        description: Full GitHub repo URL with stock firmware release
+        required: false
+        default: https://github.com/bspippi1337/BLCKSWAN_OS42_BUILDER
+      asset_regex:
+        description: Firmware asset regex
+        required: false
+        default: '(RETEU|XT2521|lamu|VVTA|firmware|stock|payload|super|product|BUILDER).*\.(zip|tgz|tar\.gz)$'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout forge
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Resolve stock firmware URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STOCK_URL_INPUT: ${{ github.event.inputs.stock_url }}
+          RELEASE_REPO_URL: ${{ github.event.inputs.release_repo_url }}
+          ASSET_REGEX: ${{ github.event.inputs.asset_regex }}
+        run: |
+          set -eux
+
+          if [ -n "$STOCK_URL_INPUT" ]; then
+            echo "STOCK_URL=$STOCK_URL_INPUT" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          RELEASE_REPO="$(echo "$RELEASE_REPO_URL" | sed -E 's#https://github.com/##; s#/$##')"
+          echo "RELEASE_REPO=$RELEASE_REPO"
+
+          gh release list --repo "$RELEASE_REPO" --limit 50 --json tagName \
+            | jq -r '.[].tagName' > /tmp/tags.txt
+
+          while read -r TAG; do
+            gh release view "$TAG" --repo "$RELEASE_REPO" --json assets \
+              | jq -r '.assets[] | [.size,.name,.url] | @tsv'
+          done < /tmp/tags.txt \
+            | grep -Eiv 'RED.?MOON|MAGISK|FASTBOOTD' \
+            | grep -Ei "$ASSET_REGEX" \
+            | sort -nr \
+            | tee /tmp/candidates.txt
+
+          echo "===== CANDIDATES ====="
+          cat /tmp/candidates.txt
+
+          STOCK_URL="$(grep -E '\.part\.000$' /tmp/candidates.txt | head -1 | cut -f3- || true)"
+          if [ -z "$STOCK_URL" ]; then
+            STOCK_URL="$(head -1 /tmp/candidates.txt | cut -f3-)"
+          fi
+          test -n "$STOCK_URL"
+          echo "STOCK_URL=$STOCK_URL" >> "$GITHUB_ENV"
+
+      - name: Build About APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Build flashable RED MOON ROM
+        run: bash scripts/build_flashrom.sh "$STOCK_URL"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLCKSWAN_OS42_RED_MOON_FASTBOOTD
+          path: |
+            out/BLCKSWAN_OS42_RED_MOON_FASTBOOTD.zip
+            out/BLCKSWAN_OS42_RED_MOON_FASTBOOTD.zip.sha256
