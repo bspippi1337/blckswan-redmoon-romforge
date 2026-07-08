@@ -1,0 +1,42 @@
+name: BLCKSWAN Probe Stock
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_url:
+        required: false
+        description: Optional direct stock asset URL
+      release_repo_url:
+        required: false
+        default: https://github.com/bspippi1337/BLCKSWAN_OS42_BUILDER
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq unzip curl
+      - name: Resolve stock URL
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          STOCK_URL_INPUT: ${{ github.event.inputs.stock_url }}
+          RELEASE_REPO_URL: ${{ github.event.inputs.release_repo_url }}
+        run: |
+          set -eux
+          if [ -n "$STOCK_URL_INPUT" ]; then
+            echo "STOCK_URL=$STOCK_URL_INPUT" >> "$GITHUB_ENV"
+          else
+            URL="$(bash scripts/resolve_stock_release.sh "$RELEASE_REPO_URL" | tail -1)"
+            echo "STOCK_URL=$URL" >> "$GITHUB_ENV"
+          fi
+      - name: Probe stock
+        run: bash scripts/probe_stock.sh "$STOCK_URL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLCKSWAN_STOCK_PROBE
+          path: stock_probe/

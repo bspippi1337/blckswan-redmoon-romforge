@@ -1,0 +1,35 @@
+name: BLCKSWAN RED MOON Full ROM
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_branch:
+        required: false
+        default: android-15.0.0_r1
+      clean:
+        required: false
+        default: "false"
+
+jobs:
+  full_rom:
+    runs-on: [self-hosted, linux, x64, blckswan-rom]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Full BLCKSWAN source build
+        run: |
+          set -eux
+          mkdir -p ~/android/blckswan-redmoon
+          cd ~/android/blckswan-redmoon
+          if [ ! -d .repo ]; then
+            repo init -u https://android.googlesource.com/platform/manifest -b "${{ github.event.inputs.android_branch }}"
+            mkdir -p .repo/local_manifests
+            cp "$GITHUB_WORKSPACE/manifests/blckswan_redmoon.xml" .repo/local_manifests/
+          fi
+          repo sync -c --force-sync --no-clone-bundle --no-tags -j"$(nproc)"
+          source build/envsetup.sh
+          lunch blckswan_lamu-userdebug
+          mka bacon || mka
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLCKSWAN_RED_MOON_FULL_ROM
+          path: ~/android/blckswan-redmoon/out/target/product/lamu/*
